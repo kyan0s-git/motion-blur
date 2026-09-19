@@ -15,6 +15,15 @@ mblur_add_test(test_weights)
 mblur_add_test(test_kernels)
 mblur_add_test(test_pipeline)
 
+# The CLI is tested through its real binary rather than by linking its
+# internals, so the test covers argument handling and exit codes too.
+if(MBLUR_BUILD_CLI)
+  mblur_add_test(test_cli)
+  target_compile_definitions(test_cli PRIVATE
+    BLURCLI_PATH="$<TARGET_FILE:blurcli>")
+  add_dependencies(test_cli blurcli)
+endif()
+
 # The allocation check needs the GNU linker's --wrap. Where it is missing the
 # test is skipped rather than silently dropped from the suite.
 include(CheckCSourceCompiles)

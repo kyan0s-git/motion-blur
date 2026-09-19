@@ -1,0 +1,89 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: ${{ matrix.os }} / ${{ matrix.compiler }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            compiler: gcc
+          - os: ubuntu-latest
+            compiler: clang
+          - os: windows-latest
+            compiler: msvc
+          - os: macos-latest
+            compiler: clang
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        shell: bash
+        run: |
+          if [ "${{ matrix.compiler }}" = "clang" ]; then
+            export CC=clang
+          elif [ "${{ matrix.compiler }}" = "gcc" ]; then
+            export CC=gcc
+          fi
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Test
+        run: ctest --test-dir build --build-config Release --output-on-failure
+
+      # The benchmark is the project's performance claim, so it runs in CI and
+      # its output is kept. Hosted runners are shared and their timings are
+      # noisy, so the threshold is deliberately loose - it is there to catch an
+      # algorithmic regression, not a few percent of jitter.
+      - name: Benchmark
+        shell: bash
+        run: |
+          BENCH=$(find build -name 'mblur_bench*' -type f | head -1)
+          "$BENCH" --resolution 1080p --budget-ns 3000000
+
+  obs-plugin:
+    name: OBS plugin (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      # Built against the oldest supported OBS on purpose: libobs refuses a
+      # plugin whose major.minor exceeds the host's, so building against 30.x
+      # is what lets one binary load on 30, 31 and 32.
+      - name: Install libobs (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo add-apt-repository -y ppa:obsproject/obs-studio
+          sudo apt-get update
+          sudo apt-get install -y libobs-dev obs-studio
+
+      - name: Configure and build
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S . -B build-obs -DCMAKE_BUILD_TYPE=Release \
+                -DMBLUR_BUILD_OBS_PLUGIN=ON
+          cmake --build build-obs
+
+      - name: Note
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          echo "The Windows plugin build needs the OBS plugin template's"
+          echo "prebuilt dependencies (see obs-plugin/buildspec.json)."
+          echo "Wire that up before enabling this leg."

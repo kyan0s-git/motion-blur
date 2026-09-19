@@ -1,0 +1,27 @@
+{
+  "dependencies": {
+    "obs-studio": {
+      "version": "30.0.0",
+      "baseUrl": "https://github.com/obsproject/obs-studio/archive/refs/tags",
+      "label": "OBS sources",
+      "hashes": {}
+    }
+  },
+  "name": "motion-blur",
+  "displayName": "Motion Blur",
+  "version": "0.1.0",
+  "author": "the motion-blur authors",
+  "website": "https://github.com/kyan0s-git/motion-blur",
+  "email": "",
+  "uuids": {
+    "macosPackage": "",
+    "macosInstaller": "",
+    "windowsApp": ""
+  },
+  "platformConfig": {
+    "macos": {
+      "bundleId": "com.github.kyan0s-git.motion-blur"
+    }
+  },
+  "_comment": "Pinned to OBS 30.0 deliberately. libobs rejects a plugin whose major.minor exceeds the host's (patch is masked off), so building against the OLDEST supported release is what makes one binary load on 30, 31 and 32. obs_encoder_set_frame_rate_divisor, which the decimate mode depends on, dates to the 30.x line and sets that floor."
+}

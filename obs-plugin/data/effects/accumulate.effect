@@ -1,0 +1,89 @@
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+/*
+ * Two passes.
+ *
+ * Accumulate runs once per source frame. The blend state is set by the C
+ * side - (ONE, ZERO) to open a window, (ONE, ONE) to add to it - so the
+ * fixed-function blend unit does the accumulation and this shader only has
+ * to weight the sample. Colour is premultiplied by alpha before weighting;
+ * weighting RGB independently of A makes semi-transparent edges fringe as
+ * they blur.
+ *
+ * Resolve runs once per output frame and undoes the premultiply. There is
+ * no colour-space conversion or tonemapping anywhere here, deliberately:
+ * the filter emits the same space it was handed, so a conversion would be
+ * a round trip that can only lose precision. The accumulator is linear
+ * because the capture pass samples through an sRGB view.
+ */
+
+uniform float4x4 ViewProj;
+uniform texture2d image;
+uniform float weight;
+
+sampler_state pointSampler {
+	Filter   = Point;
+	AddressU = Clamp;
+	AddressV = Clamp;
+};
+
+struct VertInOut {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertInOut VSDefault(VertInOut vert_in)
+{
+	VertInOut vert_out;
+	vert_out.pos = mul(float4(vert_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv = vert_in.uv;
+	return vert_out;
+}
+
+float4 PSAccumulate(VertInOut vert_in) : TARGET
+{
+	float4 c = image.Sample(pointSampler, vert_in.uv);
+	return float4(c.rgb * c.a, c.a) * weight;
+}
+
+float4 PSResolve(VertInOut vert_in) : TARGET
+{
+	float4 c = image.Sample(pointSampler, vert_in.uv);
+	/* Un-premultiply. Fully transparent pixels have no colour to recover,
+	 * and dividing by zero there would produce NaNs that spread through
+	 * every later blend. */
+	float a = max(c.a, 1.0e-6);
+	return float4(c.rgb / a, c.a);
+}
+
+/* Straight copy, used to snapshot a completed window. */
+float4 PSCopy(VertInOut vert_in) : TARGET
+{
+	return image.Sample(pointSampler, vert_in.uv);
+}
+
+technique Accumulate
+{
+	pass
+	{
+		vertex_shader = VSDefault(vert_in);
+		pixel_shader  = PSAccumulate(vert_in);
+	}
+}
+
+technique Resolve
+{
+	pass
+	{
+		vertex_shader = VSDefault(vert_in);
+		pixel_shader  = PSResolve(vert_in);
+	}
+}
+
+technique Copy
+{
+	pass
+	{
+		vertex_shader = VSDefault(vert_in);
+		pixel_shader  = PSCopy(vert_in);
+	}
+}

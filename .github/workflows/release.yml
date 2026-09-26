@@ -8,15 +8,24 @@ name: release
 on:
   push:
     tags: ['v*']
-  # Build and package without publishing, to prove the pipeline before a tag
-  # exists. Burning a public tag per attempt is not a debugging strategy.
   workflow_dispatch:
+    inputs:
+      tag:
+        description: >-
+          Tag to create and release, e.g. v0.1.0. Leave empty to build and
+          package without publishing anything.
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
 env:
   OBS_VERSION: "30.0.2"
+  # Either the tag that was pushed, or one named for a manual run. Anything
+  # that does not look like a version tag is treated as a dev build and
+  # publishes nothing.
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 jobs:
   linux:
@@ -39,8 +48,10 @@ jobs:
 
       - name: Package
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          [ "$GITHUB_REF_TYPE" = "tag" ] || VERSION="dev"
+          case "$RELEASE_TAG" in
+            v*) VERSION="${RELEASE_TAG#v}" ;;
+            *)  VERSION="dev" ;;
+          esac
           NAME="motion-blur-${VERSION}-linux-x64"
           mkdir -p "dist/$NAME/obs-plugin/motion-blur/bin/64bit"
           cp build/apps/blurcli/blurcli "dist/$NAME/"
@@ -85,7 +96,7 @@ jobs:
       - name: Package
         shell: pwsh
         run: |
-          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME -replace '^v','' } else { 'dev' }
+          $version = if ($env:RELEASE_TAG -like 'v*') { $env:RELEASE_TAG -replace '^v','' } else { 'dev' }
           $name = "motion-blur-$version-windows-x64"
           $root = "dist/$name"
           New-Item -ItemType Directory -Force -Path "$root/obs-plugin/motion-blur/bin/64bit" | Out-Null
@@ -126,8 +137,10 @@ jobs:
 
       - name: Package
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          [ "$GITHUB_REF_TYPE" = "tag" ] || VERSION="dev"
+          case "$RELEASE_TAG" in
+            v*) VERSION="${RELEASE_TAG#v}" ;;
+            *)  VERSION="dev" ;;
+          esac
           NAME="motion-blur-${VERSION}-macos-arm64"
           mkdir -p "dist/$NAME"
           cp build/apps/blurcli/blurcli "dist/$NAME/"
@@ -144,7 +157,7 @@ jobs:
   publish:
     name: Publish release
     needs: [linux, windows, macos]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.tag, 'v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -167,7 +180,7 @@ jobs:
       # written deliberately rather than assembled from commit subjects.
       - name: Extract release notes
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
           awk -v ver="$VERSION" '
             $0 ~ "^## \\[" ver "\\]" { grab = 1; next }
             grab && /^## \[/ { exit }
@@ -183,7 +196,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="$GITHUB_REF_NAME"
+          TAG="$RELEASE_TAG"
           # 0.x is not a stability promise, and a hyphen means rc/beta by
           # convention. Either way it is flagged rather than presented as
           # settled.
@@ -191,7 +204,11 @@ jobs:
           case "$TAG" in
             *-*|v0.*) PRERELEASE="--prerelease" ;;
           esac
+          # --target creates the tag at this commit when it does not already
+          # exist, so a release can be cut from a manual run as well as from
+          # a pushed tag.
           gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
             --title "motion-blur $TAG" \
             --notes-file notes.md \
             $PRERELEASE \

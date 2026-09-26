@@ -24,6 +24,19 @@ if(MBLUR_BUILD_CLI)
   add_dependencies(test_cli blurcli)
 endif()
 
+# Loadability of the built OBS module. Only possible where the plugin is
+# actually built, which needs libobs present.
+if(MBLUR_BUILD_OBS_PLUGIN AND NOT WIN32)
+  add_executable(test_obs_module test_obs_module.c)
+  target_include_directories(test_obs_module PRIVATE
+    ${CMAKE_SOURCE_DIR}/src ${CMAKE_CURRENT_SOURCE_DIR})
+  target_compile_definitions(test_obs_module PRIVATE
+    MOTION_BLUR_MODULE_PATH="$<TARGET_FILE:motion-blur>")
+  target_link_libraries(test_obs_module PRIVATE ${CMAKE_DL_LIBS})
+  add_dependencies(test_obs_module motion-blur)
+  add_test(NAME test_obs_module COMMAND test_obs_module)
+endif()
+
 # The allocation check needs the GNU linker's --wrap. Where it is missing the
 # test is skipped rather than silently dropped from the suite.
 include(CheckCSourceCompiles)

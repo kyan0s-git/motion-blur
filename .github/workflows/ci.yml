@@ -3,7 +3,7 @@ name: ci
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'ci/**']
   pull_request:
   workflow_dispatch:
 
@@ -43,47 +43,89 @@ jobs:
       - name: Test
         run: ctest --test-dir build --build-config Release --output-on-failure
 
-      # The benchmark is the project's performance claim, so it runs in CI and
-      # its output is kept. Hosted runners are shared and their timings are
-      # noisy, so the threshold is deliberately loose - it is there to catch an
-      # algorithmic regression, not a few percent of jitter.
+      # Each path is checked against its own budget: one number cannot
+      # describe both an accumulator that touches a frame once and a kernel
+      # that re-sums N taps per output frame. Budgets carry roughly 2x
+      # headroom over the slowest runner, so this catches an algorithmic
+      # regression rather than the timing noise of a shared machine.
       - name: Benchmark
         shell: bash
         run: |
-          BENCH=$(find build -name 'mblur_bench*' -type f | head -1)
-          "$BENCH" --resolution 1080p --budget-ns 3000000
+          BENCH=$(find build \( -name 'mblur_bench' -o -name 'mblur_bench.exe' \) -type f | head -1)
+          if [ -z "$BENCH" ]; then echo "benchmark binary not found"; exit 1; fi
+          "$BENCH" --resolution 1080p --check-budgets
 
-  obs-plugin:
-    name: OBS plugin (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
+  obs-plugin-linux:
+    name: OBS plugin (Linux)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # Built against the oldest supported OBS on purpose: libobs refuses a
-      # plugin whose major.minor exceeds the host's, so building against 30.x
-      # is what lets one binary load on 30, 31 and 32.
-      - name: Install libobs (Linux)
-        if: runner.os == 'Linux'
+      # Ubuntu 24.04 ships libobs-dev 30.0.2, which is exactly the OBS 30.0
+      # floor the plugin targets, with working CMake package configs for both
+      # libobs and obs-frontend-api. No PPA needed - and obs-studio must NOT
+      # be installed alongside, because it conflicts with libobs0.
+      - name: Install libobs
         run: |
-          sudo add-apt-repository -y ppa:obsproject/obs-studio
           sudo apt-get update
-          sudo apt-get install -y libobs-dev obs-studio
+          sudo apt-get install -y libobs-dev
 
-      - name: Configure and build
-        if: runner.os == 'Linux'
+      - name: Build
         run: |
-          cmake -S . -B build-obs -DCMAKE_BUILD_TYPE=Release \
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
                 -DMBLUR_BUILD_OBS_PLUGIN=ON
-          cmake --build build-obs
+          cmake --build build
 
-      - name: Note
-        if: runner.os == 'Windows'
-        shell: bash
+      # test_obs_module dlopens the built module with RTLD_NOW and resolves
+      # OBS's three entry points. That catches a call to a libobs function
+      # that does not exist in the targeted version - which links fine and
+      # then fails to load inside OBS with only a LOG_DEBUG line to show for
+      # it.
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: motion-blur-plugin-linux
+          path: build/obs-plugin/motion-blur.so
+
+  obs-plugin-windows:
+    name: OBS plugin (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Assembles an SDK from OBS's own shipped DLLs plus matching headers,
+      # rather than building OBS (and Qt, and obs-deps) from source.
+      - name: Assemble the OBS SDK
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./.github/scripts/make-obs-sdk.ps1 -OutDir obs-sdk
+
+      - name: Build
+        shell: pwsh
         run: |
-          echo "The Windows plugin build needs the OBS plugin template's"
-          echo "prebuilt dependencies (see obs-plugin/buildspec.json)."
-          echo "Wire that up before enabling this leg."
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release `
+                -DMBLUR_BUILD_OBS_PLUGIN=ON `
+                -DOBS_SDK_DIR="${{ github.workspace }}/obs-sdk"
+          cmake --build build --config Release
+
+      - name: Check the module
+        shell: pwsh
+        run: |
+          $dll = Get-ChildItem -Path build -Recurse -Filter 'motion-blur.dll' | Select-Object -First 1
+          if (-not $dll) { throw "motion-blur.dll was not produced" }
+          Write-Host "Built $($dll.FullName)"
+          # OBS looks up these three by name; a missing export means the
+          # plugin silently does not load.
+          $exports = & dumpbin /nologo /exports $dll.FullName
+          foreach ($sym in 'obs_module_load', 'obs_module_ver', 'obs_module_set_pointer') {
+            if ($exports -notmatch $sym) { throw "missing export: $sym" }
+            Write-Host "  $sym present"
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: motion-blur-plugin-windows
+          path: build/obs-plugin/Release/motion-blur.dll

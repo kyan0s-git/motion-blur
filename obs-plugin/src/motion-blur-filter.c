@@ -557,8 +557,7 @@ static void mb_video_render(void *data, gs_effect_t *effect)
 		gs_matrix_identity();
 
 		gs_texture_t *prev_target = gs_get_render_target();
-		const enum gs_color_space prev_space =
-			gs_get_render_target_color_space();
+		const enum gs_color_space prev_space = gs_get_color_space();
 
 		if (mb->mode == MB_MODE_DECIMATE)
 			accumulate_decimate(mb, cx, cy);

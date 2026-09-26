@@ -17,6 +17,8 @@ option(MBLUR_BUILD_BENCH "Build the benchmark harness" ON)
 option(MBLUR_BUILD_CLI "Build the offline blurcli tool" ON)
 option(MBLUR_BUILD_OBS_PLUGIN "Build the OBS Studio plugin" OFF)
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 include(CheckCSourceCompiles)
 
 # --- target architecture -------------------------------------------------

@@ -150,20 +150,30 @@ static result run_case(const mblur_config *base, mblur_backend backend,
 
 int main(int argc, char **argv)
 {
-    double budget_ns = 0.0;
+    int check_budgets = 0;
+    double budget_scale = 1.0;
     const char *only_res = NULL;
     uint32_t threads = 0;
 
     for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--budget-ns") && i + 1 < argc)
-            budget_ns = atof(argv[++i]);
+        if (!strcmp(argv[i], "--check-budgets"))
+            check_budgets = 1;
+        else if (!strcmp(argv[i], "--budget-scale") && i + 1 < argc)
+            budget_scale = atof(argv[++i]);
         else if (!strcmp(argv[i], "--resolution") && i + 1 < argc)
             only_res = argv[++i];
         else if (!strcmp(argv[i], "--threads") && i + 1 < argc)
             threads = (uint32_t)atoi(argv[++i]);
         else {
-            printf("usage: %s [--budget-ns N] [--resolution 1080p] "
-                   "[--threads N]\n", argv[0]);
+            printf("usage: %s [--check-budgets] [--budget-scale F] "
+                   "[--resolution 1080p] [--threads N]\n"
+                   "\n"
+                   "  --check-budgets  exit non-zero if any path at 1080p on "
+                   "the best\n"
+                   "                   backend exceeds its own budget\n"
+                   "  --budget-scale   multiply every budget, for slower "
+                   "machines\n",
+                   argv[0]);
             return 2;
         }
     }
@@ -176,30 +186,46 @@ int main(int argc, char **argv)
         MBLUR_BACKEND_CPU_SCALAR, MBLUR_BACKEND_CPU_SSE2,
         MBLUR_BACKEND_CPU_AVX2, MBLUR_BACKEND_CPU_AVX512};
 
+    /*
+     * Each case carries its own budget, because one number cannot describe
+     * both a path that folds one frame into an accumulator and a path that
+     * re-sums N taps per output frame. Sharing a budget means either the
+     * fast path is never really checked, or the O(N) path fails for being
+     * exactly what it is defined to be.
+     *
+     * The numbers are roughly twice the slowest measurement seen across CI
+     * runners - the floor is a shared arm64 macOS runner with no SIMD at
+     * all - so they catch an algorithmic regression without failing on the
+     * timing noise of a busy hosted machine. Use --budget-scale on hardware
+     * slower than that.
+     */
     const struct {
         mblur_mode mode;
         mblur_weighting weighting;
         int linear;
         mblur_format format;
         const char *label;
+        double budget_ns;
     } cases[] = {
         /* The two that matter: NV12 decimate is what the offline encoder
          * path runs, RGBA linear is the quality default. */
         {MBLUR_MODE_DECIMATE, MBLUR_W_EQUAL, 0, MBLUR_FMT_NV12,
-         "decimate nv12"},
+         "decimate nv12", 1500000.0},
         {MBLUR_MODE_DECIMATE, MBLUR_W_GAUSSIAN_SYM, 0, MBLUR_FMT_NV12,
-         "decimate nv12 w"},
+         "decimate nv12 w", 1500000.0},
         {MBLUR_MODE_DECIMATE, MBLUR_W_EQUAL, 0, MBLUR_FMT_RGBA8,
-         "decimate gamma"},
+         "decimate gamma", 4000000.0},
         {MBLUR_MODE_DECIMATE, MBLUR_W_GAUSSIAN_SYM, 1, MBLUR_FMT_RGBA8,
-         "decimate linear"},
+         "decimate linear", 8000000.0},
         {MBLUR_MODE_ROLLING, MBLUR_W_EQUAL, 0, MBLUR_FMT_RGBA8,
-         "rolling slide"},
+         "rolling slide", 20000000.0},
+        /* N passes per output frame by construction; it exists as the
+         * arbitrary-weight fallback, not as a fast path. */
         {MBLUR_MODE_ROLLING, MBLUR_W_GAUSSIAN_SYM, 1, MBLUR_FMT_RGBA8,
-         "rolling resum"},
+         "rolling resum", 70000000.0},
     };
 
-    int worst_over_budget = 0;
+    int over_budget = 0;
 
     for (size_t ri = 0; ri < sizeof(k_res) / sizeof(k_res[0]); ri++) {
         const resolution *res = &k_res[ri];
@@ -226,8 +252,9 @@ int main(int argc, char **argv)
 
         printf("== %s (%ux%u, %.1f MB/frame) ==\n", res->label, res->width,
                res->height, (double)bytes / 1e6);
-        printf("%-16s %-8s %3s  %10s %10s %8s\n", "case", "backend", "N",
+        printf("%-16s %-8s %3s  %10s %10s %8s", "case", "backend", "N",
                "ns/in", "ns/out", "GB/s");
+        printf(check_budgets ? "  %10s\n" : "\n", "budget");
 
         for (size_t ci = 0; ci < sizeof(cases) / sizeof(cases[0]); ci++) {
             for (uint32_t frames_n = 4; frames_n <= 16; frames_n *= 2) {
@@ -264,13 +291,21 @@ int main(int argc, char **argv)
                            cases[ci].label, mblur_backend_name(backends[bi]),
                            frames_n, r.ns_per_input, r.ns_per_output, r.gbps);
 
-                    if (budget_ns > 0.0 &&
-                        backends[bi] == mblur_cpu_best_backend() &&
-                        !strcmp(res->label, "1080p")) {
-                        const int over = r.ns_per_input > budget_ns;
-                        printf("  %s", over ? "OVER BUDGET" : "");
-                        if (over)
-                            worst_over_budget = 1;
+                    /* Only the best backend at 1080p is gated: the other
+                     * rows are there to show the shape of the cost, and
+                     * holding the scalar reference to the same budget as a
+                     * vectorised kernel would be meaningless. */
+                    if (check_budgets) {
+                        const double budget =
+                            cases[ci].budget_ns * budget_scale;
+                        printf("  %10.0f", budget);
+                        if (backends[bi] == mblur_cpu_best_backend() &&
+                            !strcmp(res->label, "1080p")) {
+                            if (r.ns_per_input > budget) {
+                                printf("  OVER BUDGET");
+                                over_budget = 1;
+                            }
+                        }
                     }
                     printf("\n");
                 }
@@ -282,10 +317,10 @@ int main(int argc, char **argv)
             free(frames[i]);
     }
 
-    if (budget_ns > 0.0) {
-        printf("budget: %.0f ns per input frame at 1080p on %s -> %s\n",
-               budget_ns, mblur_backend_name(mblur_cpu_best_backend()),
-               worst_over_budget ? "FAILED" : "met");
+    if (check_budgets) {
+        printf("per-case budgets at 1080p on %s (scale %.2f) -> %s\n",
+               mblur_backend_name(mblur_cpu_best_backend()), budget_scale,
+               over_budget ? "FAILED" : "all met");
     }
-    return worst_over_budget ? 1 : 0;
+    return over_budget ? 1 : 0;
 }

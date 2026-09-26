@@ -23,6 +23,42 @@
  */
 #include "motion-blur.h"
 
+#if !defined(MBLUR_HAVE_OBS_FRONTEND)
+
+/*
+ * Built where obs-frontend-api is unavailable. The filter and both blur
+ * modes work normally; only the automatic divisor is missing, and the user
+ * is told once rather than left wondering why the recording still runs at
+ * the canvas rate.
+ */
+void mb_frontend_set_divisor_source(obs_source_t *source, bool enabled,
+				    uint32_t frames)
+{
+	UNUSED_PARAMETER(source);
+	UNUSED_PARAMETER(frames);
+
+	static bool warned = false;
+	if (enabled && !warned) {
+		warned = true;
+		blog(LOG_WARNING,
+		     "[motion-blur] this build has no obs-frontend-api, so the "
+		     "recording frame rate divisor cannot be set "
+		     "automatically. Decimate mode still blends correctly, but "
+		     "the recording will run at the full canvas rate unless "
+		     "something else divides it.");
+	}
+}
+
+void mb_frontend_init(void)
+{
+}
+
+void mb_frontend_shutdown(void)
+{
+}
+
+#else /* MBLUR_HAVE_OBS_FRONTEND */
+
 #include <obs-frontend-api.h>
 #include <util/threading.h>
 
@@ -220,3 +256,5 @@ void mb_frontend_shutdown(void)
 	pthread_mutex_destroy(&g_lock);
 	g_initialised = false;
 }
+
+#endif /* MBLUR_HAVE_OBS_FRONTEND */

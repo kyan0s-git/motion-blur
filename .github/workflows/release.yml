@@ -1,0 +1,221 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Cuts a release from a tag. Every build job must succeed before anything is
+# published: a release that is missing the Windows plugin is worse than no
+# release, because the gap is invisible until someone downloads it.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  # Build and package without publishing, to prove the pipeline before a tag
+  # exists. Burning a public tag per attempt is not a debugging strategy.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  OBS_VERSION: "30.0.2"
+
+jobs:
+  linux:
+    name: Linux x64
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libobs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libobs-dev
+
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+                -DMBLUR_BUILD_OBS_PLUGIN=ON
+          cmake --build build
+          ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = "tag" ] || VERSION="dev"
+          NAME="motion-blur-${VERSION}-linux-x64"
+          mkdir -p "dist/$NAME/obs-plugin/motion-blur/bin/64bit"
+          cp build/apps/blurcli/blurcli "dist/$NAME/"
+          cp README.md LICENSE NOTICE CHANGELOG.md "dist/$NAME/"
+          cp build/obs-plugin/motion-blur.so \
+             "dist/$NAME/obs-plugin/motion-blur/bin/64bit/"
+          cp -r obs-plugin/data "dist/$NAME/obs-plugin/motion-blur/"
+          cat > "dist/$NAME/INSTALL.txt" <<'TXT'
+          blurcli
+            Copy `blurcli` anywhere on your PATH. Container files need ffmpeg
+            and ffprobe available; raw pipe mode needs nothing.
+
+          OBS plugin
+            Copy the `obs-plugin/motion-blur` directory into
+            ~/.config/obs-studio/plugins/
+            so that you end up with
+            ~/.config/obs-studio/plugins/motion-blur/bin/64bit/motion-blur.so
+            Restart OBS, then add "Motion Blur" as a filter on a source.
+          TXT
+          tar -C dist -czf "$NAME.tar.gz" "$NAME"
+          echo "ARTIFACT=$NAME.tar.gz" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-linux
+          path: ${{ env.ARTIFACT }}
+
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the OBS SDK
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: ./.github/scripts/make-obs-sdk.ps1 -ObsVersion $env:OBS_VERSION -OutDir obs-sdk
+
+      - name: Build and test
+        shell: pwsh
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release `
+                -DMBLUR_BUILD_OBS_PLUGIN=ON `
+                -DOBS_SDK_DIR="${{ github.workspace }}/obs-sdk"
+          cmake --build build --config Release
+          ctest --test-dir build --build-config Release --output-on-failure
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME -replace '^v','' } else { 'dev' }
+          $name = "motion-blur-$version-windows-x64"
+          $root = "dist/$name"
+          New-Item -ItemType Directory -Force -Path "$root/obs-plugin/motion-blur/bin/64bit" | Out-Null
+
+          $cli = Get-ChildItem -Path build -Recurse -Filter 'blurcli.exe' | Select-Object -First 1
+          if (-not $cli) { throw "blurcli.exe not found" }
+          Copy-Item $cli.FullName "$root/"
+
+          $dll = Get-ChildItem -Path build -Recurse -Filter 'motion-blur.dll' | Select-Object -First 1
+          if (-not $dll) { throw "motion-blur.dll not found" }
+          Copy-Item $dll.FullName "$root/obs-plugin/motion-blur/bin/64bit/"
+
+          Copy-Item README.md, LICENSE, NOTICE, CHANGELOG.md "$root/"
+          Copy-Item -Recurse obs-plugin/data "$root/obs-plugin/motion-blur/data"
+
+          @"
+blurcli
+  Copy blurcli.exe anywhere on your PATH. Container files need ffmpeg.exe and
+  ffprobe.exe available; raw pipe mode needs nothing.
+
+OBS plugin
+  Copy the obs-plugin\motion-blur directory into
+  %APPDATA%\obs-studio\plugins\
+  so that you end up with
+  %APPDATA%\obs-studio\plugins\motion-blur\bin\64bit\motion-blur.dll
+  Restart OBS, then add "Motion Blur" as a filter on a source.
+
+  Built against OBS $env:OBS_VERSION. It loads on OBS 30, 31 and 32, but not
+  on releases older than 30.0.
+"@ | Set-Content "$root/INSTALL.txt"
+
+          Compress-Archive -Path $root -DestinationPath "$name.zip" -Force
+          "ARTIFACT=$name.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-windows
+          path: ${{ env.ARTIFACT }}
+
+  macos:
+    name: macOS arm64
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # No OBS plugin here: it has never been built or tested on macOS, and
+      # shipping an untried binary is worse than shipping none.
+      - name: Build and test
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          [ "$GITHUB_REF_TYPE" = "tag" ] || VERSION="dev"
+          NAME="motion-blur-${VERSION}-macos-arm64"
+          mkdir -p "dist/$NAME"
+          cp build/apps/blurcli/blurcli "dist/$NAME/"
+          cp README.md LICENSE NOTICE CHANGELOG.md "dist/$NAME/"
+          echo "blurcli only. The OBS plugin is not built for macOS yet." \
+            > "dist/$NAME/INSTALL.txt"
+          tar -C dist -czf "$NAME.tar.gz" "$NAME"
+          echo "ARTIFACT=$NAME.tar.gz" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-macos
+          path: ${{ env.ARTIFACT }}
+
+  publish:
+    name: Publish release
+    needs: [linux, windows, macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect and checksum
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+            -exec cp {} release/ \;
+          cd release
+          sha256sum * > SHA256SUMS
+          echo "--- release contents ---"
+          cat SHA256SUMS
+
+      # Notes come from the CHANGELOG section matching the tag, so they are
+      # written deliberately rather than assembled from commit subjects.
+      - name: Extract release notes
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            $0 ~ "^## \\[" ver "\\]" { grab = 1; next }
+            grab && /^## \[/ { exit }
+            grab { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then
+            echo "No CHANGELOG section for $VERSION" >&2
+            exit 1
+          fi
+          wc -l notes.md
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="$GITHUB_REF_NAME"
+          # 0.x is not a stability promise, and a hyphen means rc/beta by
+          # convention. Either way it is flagged rather than presented as
+          # settled.
+          PRERELEASE=""
+          case "$TAG" in
+            *-*|v0.*) PRERELEASE="--prerelease" ;;
+          esac
+          gh release create "$TAG" \
+            --title "motion-blur $TAG" \
+            --notes-file notes.md \
+            $PRERELEASE \
+            release/*

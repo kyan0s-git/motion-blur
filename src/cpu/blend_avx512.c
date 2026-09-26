@@ -3,16 +3,24 @@
 #if defined(MBLUR_X86)
 #include <immintrin.h>
 
-void mblur_scalar_accum_lut(mblur_acc *, const uint8_t *, size_t,
-                            const uint16_t *, uint32_t);
-void mblur_scalar_accum_lut_sub(mblur_acc *, const uint8_t *, size_t,
-                                const uint16_t *, uint32_t);
-void mblur_scalar_accum_mul(mblur_acc *, const uint8_t *, size_t, uint16_t);
-void mblur_scalar_store_lut(mblur_acc *, const uint8_t *, size_t,
-                            const uint16_t *, uint32_t);
-void mblur_scalar_store_mul(mblur_acc *, const uint8_t *, size_t, uint16_t);
-void mblur_scalar_accum_mul_sub(mblur_acc *, const uint8_t *, size_t, uint16_t);
-void mblur_scalar_resolve_direct(uint8_t *, const mblur_acc *, size_t,
+void mblur_scalar_accum_lut(mblur_acc *MBLUR_RESTRICT,
+                            const uint8_t *MBLUR_RESTRICT, size_t,
+                            const uint16_t *MBLUR_RESTRICT, uint32_t);
+void mblur_scalar_accum_lut_sub(mblur_acc *MBLUR_RESTRICT,
+                                const uint8_t *MBLUR_RESTRICT, size_t,
+                                const uint16_t *MBLUR_RESTRICT, uint32_t);
+void mblur_scalar_accum_mul(mblur_acc *MBLUR_RESTRICT,
+                            const uint8_t *MBLUR_RESTRICT, size_t, uint16_t);
+void mblur_scalar_store_lut(mblur_acc *MBLUR_RESTRICT,
+                            const uint8_t *MBLUR_RESTRICT, size_t,
+                            const uint16_t *MBLUR_RESTRICT, uint32_t);
+void mblur_scalar_store_mul(mblur_acc *MBLUR_RESTRICT,
+                            const uint8_t *MBLUR_RESTRICT, size_t, uint16_t);
+void mblur_scalar_accum_mul_sub(mblur_acc *MBLUR_RESTRICT,
+                                const uint8_t *MBLUR_RESTRICT, size_t,
+                                uint16_t);
+void mblur_scalar_resolve_direct(uint8_t *MBLUR_RESTRICT,
+                                 const mblur_acc *MBLUR_RESTRICT, size_t,
                                  const mblur_dither *, size_t);
 void mblur_scalar_resolve_oetf(uint8_t *, const mblur_acc *, size_t,
                                const uint16_t *, int, const mblur_dither *,

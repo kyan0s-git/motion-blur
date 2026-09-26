@@ -91,11 +91,13 @@ typedef struct mblur_kernels {
      * tables actually differ (i.e. there is an alpha channel to exempt from
      * the transfer function); otherwise the caller passes 1.
      */
-    void (*accum_lut)(mblur_acc *acc, const uint8_t *src, size_t n,
-                      const uint16_t *lut, uint32_t channels);
+    void (*accum_lut)(mblur_acc *MBLUR_RESTRICT acc,
+                      const uint8_t *MBLUR_RESTRICT src, size_t n,
+                      const uint16_t *MBLUR_RESTRICT lut, uint32_t channels);
 
     /* acc[i] += (src[i] * 257 * w) >> 16   (gamma-space, no table) */
-    void (*accum_mul)(mblur_acc *acc, const uint8_t *src, size_t n,
+    void (*accum_mul)(mblur_acc *MBLUR_RESTRICT acc,
+                      const uint8_t *MBLUR_RESTRICT src, size_t n,
                       uint16_t w_q16);
 
     /*
@@ -105,24 +107,30 @@ typedef struct mblur_kernels {
      * fewer full-frame write per window in decimate mode, and one fewer
      * out of N+1 passes in a re-summed rolling window.
      */
-    void (*store_lut)(mblur_acc *acc, const uint8_t *src, size_t n,
-                      const uint16_t *lut, uint32_t channels);
-    void (*store_mul)(mblur_acc *acc, const uint8_t *src, size_t n,
+    void (*store_lut)(mblur_acc *MBLUR_RESTRICT acc,
+                      const uint8_t *MBLUR_RESTRICT src, size_t n,
+                      const uint16_t *MBLUR_RESTRICT lut, uint32_t channels);
+    void (*store_mul)(mblur_acc *MBLUR_RESTRICT acc,
+                      const uint8_t *MBLUR_RESTRICT src, size_t n,
                       uint16_t w_q16);
 
     /* As above but subtracting: the sliding-window fast path used by
      * rolling mode when every tap carries the same weight. */
-    void (*accum_mul_sub)(mblur_acc *acc, const uint8_t *src, size_t n,
+    void (*accum_mul_sub)(mblur_acc *MBLUR_RESTRICT acc,
+                          const uint8_t *MBLUR_RESTRICT src, size_t n,
                           uint16_t w_q16);
 
     /* Table-driven counterpart of accum_mul_sub, so the sliding window is
      * available on the linear-light path too - which is the default, and
      * therefore the case worth making fast. */
-    void (*accum_lut_sub)(mblur_acc *acc, const uint8_t *src, size_t n,
-                          const uint16_t *lut, uint32_t channels);
+    void (*accum_lut_sub)(mblur_acc *MBLUR_RESTRICT acc,
+                          const uint8_t *MBLUR_RESTRICT src, size_t n,
+                          const uint16_t *MBLUR_RESTRICT lut,
+                          uint32_t channels);
 
     /* dst[i] = dither_and_narrow(acc[i]) */
-    void (*resolve_direct)(uint8_t *dst, const mblur_acc *acc, size_t n,
+    void (*resolve_direct)(uint8_t *MBLUR_RESTRICT dst,
+                           const mblur_acc *MBLUR_RESTRICT acc, size_t n,
                            const mblur_dither *d, size_t base);
 
     /*

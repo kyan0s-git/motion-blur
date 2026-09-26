@@ -60,7 +60,31 @@ void mb_frontend_shutdown(void)
 #else /* MBLUR_HAVE_OBS_FRONTEND */
 
 #include <obs-frontend-api.h>
-#include <util/threading.h>
+
+/*
+ * A mutex, without pulling in OBS's <util/threading.h>. That header reaches
+ * for <pthread.h>, which on Windows means OBS's bundled w32-pthreads - a
+ * separate library with its own DLL and import lib. Dragging that in for one
+ * mutex would defeat the point of building against OBS's shipped binaries,
+ * so the lock is spelled out here the same way the engine's thread pool does
+ * it.
+ */
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+typedef CRITICAL_SECTION mb_mutex;
+#define MB_MUTEX_INIT(m) (InitializeCriticalSection(m), 0)
+#define MB_MUTEX_FREE(m) DeleteCriticalSection(m)
+#define MB_LOCK(m) EnterCriticalSection(m)
+#define MB_UNLOCK(m) LeaveCriticalSection(m)
+#else
+#include <pthread.h>
+typedef pthread_mutex_t mb_mutex;
+#define MB_MUTEX_INIT(m) pthread_mutex_init(m, NULL)
+#define MB_MUTEX_FREE(m) pthread_mutex_destroy(m)
+#define MB_LOCK(m) pthread_mutex_lock(m)
+#define MB_UNLOCK(m) pthread_mutex_unlock(m)
+#endif
 
 /*
  * At most one filter drives the divisor. Two filters asking for different
@@ -70,18 +94,18 @@ void mb_frontend_shutdown(void)
  */
 static obs_weak_source_t *g_driver;
 static uint32_t g_divisor;
-static pthread_mutex_t g_lock;
+static mb_mutex g_lock;
 static bool g_initialised;
 
 static void apply_divisor_to_recording(void)
 {
 	uint32_t divisor;
 
-	pthread_mutex_lock(&g_lock);
+	MB_LOCK(&g_lock);
 	divisor = g_divisor;
 	obs_source_t *driver = g_driver ? obs_weak_source_get_source(g_driver)
 					: NULL;
-	pthread_mutex_unlock(&g_lock);
+	MB_UNLOCK(&g_lock);
 
 	if (!driver)
 		return;
@@ -187,7 +211,7 @@ void mb_frontend_set_divisor_source(obs_source_t *source, bool enabled,
 	if (!g_initialised)
 		return;
 
-	pthread_mutex_lock(&g_lock);
+	MB_LOCK(&g_lock);
 
 	if (!enabled) {
 		/* Only clear the registration if this source owns it -
@@ -205,7 +229,7 @@ void mb_frontend_set_divisor_source(obs_source_t *source, bool enabled,
 		}
 		if (current)
 			obs_source_release(current);
-		pthread_mutex_unlock(&g_lock);
+		MB_UNLOCK(&g_lock);
 		return;
 	}
 
@@ -224,14 +248,14 @@ void mb_frontend_set_divisor_source(obs_source_t *source, bool enabled,
 	g_driver = obs_source_get_weak_source(source);
 	g_divisor = frames;
 
-	pthread_mutex_unlock(&g_lock);
+	MB_UNLOCK(&g_lock);
 
 	warn_about_canvas(frames);
 }
 
 void mb_frontend_init(void)
 {
-	if (pthread_mutex_init(&g_lock, NULL) != 0) {
+	if (MB_MUTEX_INIT(&g_lock) != 0) {
 		blog(LOG_ERROR, "[motion-blur] could not create frontend lock; "
 				"the frame rate divisor will not be applied");
 		return;
@@ -247,13 +271,13 @@ void mb_frontend_shutdown(void)
 
 	obs_frontend_remove_event_callback(on_frontend_event, NULL);
 
-	pthread_mutex_lock(&g_lock);
+	MB_LOCK(&g_lock);
 	obs_weak_source_release(g_driver);
 	g_driver = NULL;
 	g_divisor = 0;
-	pthread_mutex_unlock(&g_lock);
+	MB_UNLOCK(&g_lock);
 
-	pthread_mutex_destroy(&g_lock);
+	MB_MUTEX_FREE(&g_lock);
 	g_initialised = false;
 }
 

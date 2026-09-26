@@ -29,9 +29,6 @@
  */
 #include "motion-blur.h"
 
-#include <util/platform.h>
-#include <util/threading.h>
-
 #define S_FRAMES "frames"
 #define S_MODE "mode"
 #define S_WEIGHTING "weighting"

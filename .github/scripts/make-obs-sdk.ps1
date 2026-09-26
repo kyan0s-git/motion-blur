@@ -46,14 +46,21 @@ if ($env:GITHUB_TOKEN) { $headers["Authorization"] = "Bearer $env:GITHUB_TOKEN" 
 $release = Invoke-RestMethod -Headers $headers `
     -Uri "https://api.github.com/repos/obsproject/obs-studio/releases/tags/$ObsVersion"
 
-# Asset naming has changed across OBS releases, so match on shape rather than
-# hardcoding a filename that may not exist. If nothing matches, print what is
-# actually there - a CI log that names the real assets is worth more than a
-# guess that fails silently.
-$asset = $release.assets |
-    Where-Object { $_.name -match '\.zip$' -and $_.name -match 'Windows|x64' } |
-    Where-Object { $_.name -notmatch 'PDB|Symbol|dbsym|Installer' } |
+# OBS does not put "Windows" in the name of its Windows build: the portable
+# archive for 30.0.2 is plainly "OBS-Studio-30.0.2.zip", while every other
+# platform is spelled out (…-Ubuntu-x86_64.deb, …-macOS-Apple.dmg). So the
+# rule is "the zip that isn't debug symbols", not a name match. If nothing
+# qualifies, print the assets that do exist - a log naming the real files
+# beats a guess that fails silently.
+$candidates = $release.assets |
+    Where-Object { $_.name -match '\.zip$' } |
+    Where-Object { $_.name -notmatch 'pdb|symbol|dbsym|source|sources' }
+
+# Prefer an explicitly-named Windows/x64 archive if a future release starts
+# providing one, otherwise take the plain portable zip.
+$asset = $candidates | Where-Object { $_.name -match 'Windows|x64|win' } |
     Select-Object -First 1
+if (-not $asset) { $asset = $candidates | Select-Object -First 1 }
 
 if (-not $asset) {
     Write-Host "No Windows zip found. Assets present in $($ObsVersion):"
@@ -94,8 +101,6 @@ New-Item -ItemType Directory -Path $lib -Force | Out-Null
 # libobs/ is laid out exactly how the headers are included (<obs-module.h>,
 # <util/platform.h>, <graphics/graphics.h>), so copying the tree's headers
 # verbatim reproduces the include root a libobs install provides.
-Copy-Item -Path (Join-Path $src "libobs\*") -Destination $include -Recurse -Force `
-    -Filter "*.h"
 Get-ChildItem -Path (Join-Path $src "libobs") -Recurse -Filter "*.h" | ForEach-Object {
     $rel = $_.FullName.Substring((Join-Path $src "libobs").Length).TrimStart('\')
     $dest = Join-Path $include $rel

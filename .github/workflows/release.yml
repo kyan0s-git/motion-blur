@@ -48,18 +48,7 @@ jobs:
           cp build/obs-plugin/motion-blur.so \
              "dist/$NAME/obs-plugin/motion-blur/bin/64bit/"
           cp -r obs-plugin/data "dist/$NAME/obs-plugin/motion-blur/"
-          cat > "dist/$NAME/INSTALL.txt" <<'TXT'
-          blurcli
-            Copy `blurcli` anywhere on your PATH. Container files need ffmpeg
-            and ffprobe available; raw pipe mode needs nothing.
-
-          OBS plugin
-            Copy the `obs-plugin/motion-blur` directory into
-            ~/.config/obs-studio/plugins/
-            so that you end up with
-            ~/.config/obs-studio/plugins/motion-blur/bin/64bit/motion-blur.so
-            Restart OBS, then add "Motion Blur" as a filter on a source.
-          TXT
+          cp packaging/INSTALL-linux.txt "dist/$NAME/INSTALL.txt"
           tar -C dist -czf "$NAME.tar.gz" "$NAME"
           echo "ARTIFACT=$NAME.tar.gz" >> "$GITHUB_ENV"
 
@@ -107,22 +96,7 @@ jobs:
 
           Copy-Item README.md, LICENSE, NOTICE, CHANGELOG.md "$root/"
           Copy-Item -Recurse obs-plugin/data "$root/obs-plugin/motion-blur/data"
-
-          @"
-blurcli
-  Copy blurcli.exe anywhere on your PATH. Container files need ffmpeg.exe and
-  ffprobe.exe available; raw pipe mode needs nothing.
-
-OBS plugin
-  Copy the obs-plugin\motion-blur directory into
-  %APPDATA%\obs-studio\plugins\
-  so that you end up with
-  %APPDATA%\obs-studio\plugins\motion-blur\bin\64bit\motion-blur.dll
-  Restart OBS, then add "Motion Blur" as a filter on a source.
-
-  Built against OBS $env:OBS_VERSION. It loads on OBS 30, 31 and 32, but not
-  on releases older than 30.0.
-"@ | Set-Content "$root/INSTALL.txt"
+          Copy-Item packaging/INSTALL-windows.txt "$root/INSTALL.txt"
 
           Compress-Archive -Path $root -DestinationPath "$name.zip" -Force
           "ARTIFACT=$name.zip" | Out-File -FilePath $env:GITHUB_ENV -Append
@@ -154,8 +128,7 @@ OBS plugin
           mkdir -p "dist/$NAME"
           cp build/apps/blurcli/blurcli "dist/$NAME/"
           cp README.md LICENSE NOTICE CHANGELOG.md "dist/$NAME/"
-          echo "blurcli only. The OBS plugin is not built for macOS yet." \
-            > "dist/$NAME/INSTALL.txt"
+          cp packaging/INSTALL-macos.txt "dist/$NAME/INSTALL.txt"
           tar -C dist -czf "$NAME.tar.gz" "$NAME"
           echo "ARTIFACT=$NAME.tar.gz" >> "$GITHUB_ENV"
 

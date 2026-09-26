@@ -8,6 +8,29 @@ on:
   workflow_dispatch:
 
 jobs:
+  # An unparseable workflow shows up as a failed run with zero jobs and no
+  # log to read, which is a miserable way to find a stray indentation. This
+  # says what is wrong instead.
+  workflows:
+    name: Workflow syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Parse every workflow
+        run: |
+          python3 - <<'PY'
+          import pathlib, sys, yaml
+          bad = 0
+          for f in sorted(pathlib.Path(".github/workflows").glob("*.yml")):
+              try:
+                  jobs = yaml.safe_load(f.read_text()).get("jobs", {})
+                  print(f"ok    {f}  jobs: {', '.join(jobs)}")
+              except Exception as e:
+                  print(f"FAIL  {f}\n{e}")
+                  bad = 1
+          sys.exit(bad)
+          PY
+
   build:
     name: ${{ matrix.os }} / ${{ matrix.compiler }}
     runs-on: ${{ matrix.os }}

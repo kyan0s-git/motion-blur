@@ -56,8 +56,20 @@ does not link them, so nothing is needed at build time and any ffmpeg on
 The OBS plugin needs libobs and is off by default:
 
 ```sh
+sudo apt-get install libobs-dev      # Ubuntu 24.04 ships 30.0.2, the version we target
 cmake -S . -B build -DMBLUR_BUILD_OBS_PLUGIN=ON
+cmake --build build
+ctest --test-dir build               # includes a load check on the built module
 ```
+
+On Windows there is no libobs package, and building OBS from source to get
+one means pulling Qt and obs-deps for a library the plugin links but never
+needs compiled. `.github/scripts/make-obs-sdk.ps1` avoids that: it takes the
+`obs.dll` and `obs-frontend-api.dll` from OBS's own release, generates import
+libraries from their export tables, pairs them with headers from the matching
+source tag, and `-DOBS_SDK_DIR=` points the build at the result. Linking
+against a library generated from the real DLL is ABI-correct, because it is
+the DLL the plugin loads.
 
 ## blurcli
 
@@ -147,7 +159,13 @@ when every tap carries the same weight and the window can slide.
 
 The CPU path is a fallback and a correctness reference, not the main event —
 inside OBS the blend runs on the GPU, where the same work is a rounding error.
-`mblur_bench --budget-ns N` exits non-zero if a threshold is exceeded, for CI.
+
+`mblur_bench --check-budgets` exits non-zero if any path exceeds its budget.
+Each case carries its own: one number cannot describe both an accumulator that
+touches a frame once and a kernel that re-sums N taps per output frame, and a
+shared budget means either the fast path is never really checked or the O(N)
+path fails for being exactly what it is. `--budget-scale` loosens them all for
+slower machines.
 
 ## Correctness
 
@@ -167,7 +185,13 @@ Other things the tests assert, because each of them was a bug at some point:
   overflow at once);
 - rolling and decimate agree on an identical window;
 - the steady-state frame path performs **zero allocations**, checked by wrapping
-  the allocator at link time.
+  the allocator at link time;
+- the built OBS module loads: a test `dlopen`s it with `RTLD_NOW` and resolves
+  the three entry points OBS looks up. A plugin links happily with unresolved
+  symbols and then fails to load, which OBS reports only at `LOG_DEBUG` — so
+  the symptom is "the filter isn't in the list" and an apparently clean log.
+  The module is also linked with `--no-undefined` so that failure cannot leave
+  the build at all.
 
 YUV formats refuse `--linear-light` rather than pretending: blending chroma as
 if it were light shifts hues on coloured motion, and converting to RGB first
@@ -186,14 +210,24 @@ tests/  bench/
 docs/                   design notes, including work not yet done
 ```
 
+## Install
+
+Grab an archive from [releases](https://github.com/kyan0s-git/motion-blur/releases).
+Each one contains `blurcli`, and the Linux and Windows archives also contain the
+OBS plugin already laid out the way OBS expects — unpack `obs-plugin/motion-blur`
+into `%APPDATA%\obs-studio\plugins\` (or `~/.config/obs-studio/plugins/`),
+restart OBS, and add **Motion Blur** as a filter. `INSTALL.txt` in each archive
+says the same thing with the exact paths.
+
 ## Status
 
-The core engine and `blurcli` are built and tested. The OBS plugin is written
-but **has not been compiled** — libobs was not available in the environment it
-was written in. It was parsed against stub headers to catch syntax and
-signature errors, and it follows the structure of OBS's own `gpu-delay.c`
-closely, but expect to iterate on the first real build. See
-[docs/design-notes.md](docs/design-notes.md) for what is deferred and why.
+The engine and `blurcli` are built and tested on Linux, Windows and macOS. The
+OBS plugin compiles on Linux and Windows and passes a load check, but **has not
+yet rendered a frame inside a running OBS** — that is the next thing to verify,
+and why releases are marked pre-release for now.
+
+See [docs/design-notes.md](docs/design-notes.md) for what is deferred and why,
+and [CHANGELOG.md](CHANGELOG.md) for what is in each release.
 
 ## Licence
 

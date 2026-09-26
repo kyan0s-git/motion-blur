@@ -1,0 +1,22 @@
+motion-blur
+===========
+
+This archive contains blurcli only. The OBS plugin has never been built or
+tested on macOS, and shipping an untried binary is worse than shipping none.
+
+blurcli
+-------
+Copy `blurcli` anywhere on your PATH.
+
+Container files (--input/--output) need `ffmpeg` and `ffprobe` on your PATH;
+blurcli spawns them rather than linking them. Raw pipe mode (--raw) needs
+nothing at all.
+
+    blurcli --input capture240.mp4 --output out.mp4 --frames 4
+    blurcli --input gameplay60.mp4 --output out.mp4 --interpolate 8 --frames 8
+
+Run `blurcli --help` for the full option list.
+
+The binary is arm64. On an Intel Mac, build from source - the engine has no
+dependencies and `cmake -S . -B build && cmake --build build` is the whole
+procedure.

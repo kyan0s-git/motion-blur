@@ -1,0 +1,36 @@
+motion-blur
+===========
+
+blurcli
+-------
+Copy `blurcli.exe` anywhere on your PATH.
+
+Container files (--input/--output) need `ffmpeg.exe` and `ffprobe.exe` on your PATH;
+blurcli spawns them rather than linking them. Raw pipe mode (--raw) needs
+nothing at all.
+
+    blurcli --input capture240.mp4 --output out.mp4 --frames 4
+    blurcli --input gameplay60.mp4 --output out.mp4 --interpolate 8 --frames 8
+
+Run `blurcli --help` for the full option list.
+
+
+OBS plugin
+----------
+Copy the `obs-plugin\motion-blur` directory into %APPDATA%\obs-studio\plugins\
+so that you end up with:
+
+    %APPDATA%\obs-studio\plugins\motion-blur\bin\64bit\motion-blur.dll
+    %APPDATA%\obs-studio\plugins\motion-blur\data\effects\accumulate.effect
+    %APPDATA%\obs-studio\plugins\motion-blur\data\locale\en-US.ini
+
+Restart OBS, then add "Motion Blur" as a filter on any source.
+
+Built against OBS 30.0, so it loads on OBS 30, 31 and 32 - but not on
+releases older than 30.0. If the filter does not appear, check the OBS log
+for a line beginning "[motion-blur]"; its absence means the module did not
+load at all.
+
+Start with "Rolling blend", which works with no other changes. "Decimate" is
+the physically correct mode and needs your canvas running above your
+recording frame rate - see the README for why.

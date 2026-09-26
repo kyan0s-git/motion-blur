@@ -78,6 +78,10 @@ jobs:
           cmake --build build --config Release
           ctest --test-dir build --build-config Release --output-on-failure
 
+      - name: Check the module
+        shell: pwsh
+        run: ./.github/scripts/check-obs-module.ps1 -BuildDir build
+
       - name: Package
         shell: pwsh
         run: |

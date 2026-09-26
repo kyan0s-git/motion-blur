@@ -124,17 +124,7 @@ if (Test-Path $frontendHeader) {
 
 # ------------------------------------------------------- import libraries
 Write-Step "Entering the MSVC developer environment"
-$vswhere = Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"
-if (-not (Test-Path $vswhere)) { throw "vswhere.exe not found; no Visual Studio install" }
-
-$vsPath = & $vswhere -latest -products * `
-    -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-    -property installationPath
-if (-not $vsPath) { throw "No Visual Studio installation with the C++ toolset" }
-
-Import-Module (Join-Path $vsPath "Common7\Tools\Microsoft.VisualStudio.DevShell.dll")
-Enter-VsDevShell -VsInstallPath $vsPath -SkipAutomaticLocation `
-    -DevCmdArguments '-arch=x64 -host_arch=x64' | Out-Null
+. "$PSScriptRoot/vsdevshell.ps1"
 
 function New-ImportLib {
     param([string]$DllPath, [string]$LibName, [string]$OutLibDir)

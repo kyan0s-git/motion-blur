@@ -136,17 +136,7 @@ jobs:
 
       - name: Check the module
         shell: pwsh
-        run: |
-          $dll = Get-ChildItem -Path build -Recurse -Filter 'motion-blur.dll' | Select-Object -First 1
-          if (-not $dll) { throw "motion-blur.dll was not produced" }
-          Write-Host "Built $($dll.FullName)"
-          # OBS looks up these three by name; a missing export means the
-          # plugin silently does not load.
-          $exports = & dumpbin /nologo /exports $dll.FullName
-          foreach ($sym in 'obs_module_load', 'obs_module_ver', 'obs_module_set_pointer') {
-            if ($exports -notmatch $sym) { throw "missing export: $sym" }
-            Write-Host "  $sym present"
-          }
+        run: ./.github/scripts/check-obs-module.ps1 -BuildDir build
 
       - uses: actions/upload-artifact@v4
         with:

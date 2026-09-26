@@ -57,6 +57,43 @@ to wrap every encoder ID a user might choose — to reimplement decimation that
   `major.minor` exceeds the host's and logs the rejection at `LOG_DEBUG`, so
   the user's symptom is a missing filter and an empty log.
 
+## Building the plugin for Windows without building OBS
+
+The plugin links libobs and obs-frontend-api. Linux distributions package
+both with working CMake configs — Ubuntu 24.04's `libobs-dev` is 30.0.2,
+exactly the floor the plugin targets — so there `find_package` is the whole
+story. Windows has no such package, and the usual answer is to build OBS from
+source, which drags in obs-deps and Qt to produce a library that is linked
+and never compiled against.
+
+The shortcut rests on one fact worth checking before relying on it:
+`UI/obs-frontend-api/CMakeLists.txt` links **only `OBS::libobs`**. No Qt, no
+UI. So nothing about the plugin needs OBS built.
+
+`.github/scripts/make-obs-sdk.ps1` therefore:
+
+1. downloads OBS's official Windows release — note the archive is plainly
+   `OBS-Studio-30.0.2.zip`, with no "Windows" in the name, while every other
+   platform is spelled out, so match on shape rather than filename;
+2. takes headers from the source at the same tag. `obs-config.h` is a plain
+   in-tree header in OBS 30.x with literal version numbers, so nothing needs
+   generating;
+3. generates import libraries from the shipped DLLs' own export tables —
+   `dumpbin /exports` to a `.def`, then `lib /def:`.
+
+Linking against a library generated from the real DLL is ABI-correct, because
+that DLL is the one the plugin loads.
+
+Two things this cost, both worth knowing:
+
+- **Do not include `<util/threading.h>`.** It reaches for `<pthread.h>`,
+  which on Windows means OBS's bundled w32-pthreads — a separate library with
+  its own DLL and import lib, which would undo the whole approach. Spell out
+  the one mutex instead.
+- **Each workflow step is a fresh shell.** Entering the Visual Studio
+  developer environment in one step does nothing for the next, so every step
+  needing `dumpbin` or `lib` dot-sources `vsdevshell.ps1` for itself.
+
 ## Accumulator precision
 
 The CPU path accumulates in unsigned Q16 held in `uint16_t`. Weights normalise
